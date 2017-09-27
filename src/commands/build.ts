@@ -153,12 +153,16 @@ export class BuildCommand implements Command {
 
     logger.info(`Clearing ${mainBuildDirectoryName}${path.sep} directory...`);
     await del([mainBuildDirectoryName]);
+    logger.info(`Cleared ${mainBuildDirectoryName}${path.sep} directory...`);
 
     const mzfs = require('mz/fs') as typeof mzfsTypeOnly;
     await mzfs.mkdir(mainBuildDirectoryName);
 
+    logger.info(`Created ${mainBuildDirectoryName}${path.sep} directory...`);
+
     const polymerProject = new PolymerProject(config);
 
+    logger.info(`Project created...`);
     // If any the build command flags were passed as CLI arguments, generate
     // a single build based on those flags alone.
     const hasCliArgumentsPassed =
@@ -171,7 +175,9 @@ export class BuildCommand implements Command {
     // If no build flags were passed but 1+ polymer.json build configuration(s)
     // exist, generate a build for each configuration found.
     if (config.builds) {
-      const promises = config.builds.map(
+        logger.info(`Init ...`);
+
+        const promises = config.builds.map(
           (buildOptions) => build(buildOptions, polymerProject));
       promises.push(mzfs.writeFile(
           path.join(mainBuildDirectoryName, 'polymer.json'), config.toJSON()));
