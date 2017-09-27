@@ -15,6 +15,8 @@
 import * as path from 'path';
 import * as logging from 'plylog';
 import {dest} from 'vinyl-fs';
+import * as gulpif from 'gulp-if';
+
 
 import mergeStream = require('merge-stream');
 import {forkStream, PolymerProject, addServiceWorker, SWConfig, HtmlSplitter} from 'polymer-build';
@@ -24,8 +26,19 @@ import {ProjectBuildOptions} from 'polymer-project-config';
 import {waitFor, pipeStreams} from './streams';
 import {loadServiceWorkerConfig} from './load-config';
 
+import gulpProcess = require('gulp-preprocess');
+import gulpFilter = require('gulp-filter');
+
 const logger = logging.getLogger('cli.build.build');
 export const mainBuildDirectoryName = 'build';
+
+const EXCLUDE_REGEX = [
+    new RegExp(/\.map$/),
+    new RegExp(/\/docs?\//),
+    new RegExp(/\/demos?\//),
+    new RegExp(/\/tests?\//),
+    new RegExp(/\/examples?\//),
+];
 
 
 /**
@@ -33,111 +46,121 @@ export const mainBuildDirectoryName = 'build';
  * Note that this function is only concerned with that single build, and does
  * not care about the collection of builds defined on the config.
  */
-export async function build(
-    options: ProjectBuildOptions,
-    polymerProject: PolymerProject): Promise<void> {
-  const buildName = options.name || 'default';
-  const optimizeOptions:
-      OptimizeOptions = {css: options.css, js: options.js, html: options.html};
+export async function build(options: ProjectBuildOptions,
+                            polymerProject: PolymerProject): Promise<void> {
+    const buildName = options.name || 'default';
+    const optimizeOptions: OptimizeOptions = {css: options.css, js: options.js, html: options.html};
 
-  // If no name is provided, write directly to the build/ directory.
-  // If a build name is provided, write to that subdirectory.
-  const buildDirectory = path.join(mainBuildDirectoryName, buildName);
-  logger.debug(`"${buildDirectory}": Building with options:`, options);
 
-  // Fork the two streams to guarentee we are working with clean copies of each
-  // file and not sharing object references with other builds.
-  const sourcesStream = forkStream(polymerProject.sources());
-  const depsStream = forkStream(polymerProject.dependencies());
-  const htmlSplitter = new HtmlSplitter();
-
-  let buildStream: NodeJS.ReadableStream = pipeStreams([
-    mergeStream(sourcesStream, depsStream),
-    htmlSplitter.split(),
-    getOptimizeStreams(optimizeOptions),
-    htmlSplitter.rejoin()
-  ]);
-
-  const compiledToES5 = !!(optimizeOptions.js && optimizeOptions.js.compile);
-  if (compiledToES5) {
-    buildStream = buildStream.pipe(polymerProject.addBabelHelpersInEntrypoint());
-// already bundled within webcomponents-lite.js                      .pipe(polymerProject.addCustomElementsEs5Adapter());
-  }
-
-  const bundled = !!(options.bundle);
-
-  if (bundled) {
-    // Polymer 1.x and Polymer 2.x deal with relative urls in dom-module
-    // templates differently.  Polymer CLI will attempt to provide a sensible
-    // default value for the `rewriteUrlsInTemplates` option passed to
-    // `polymer-bundler` based on the version of Polymer found in the project's
-    // folders.  We will default to Polymer 1.x behavior unless 2.x is found.
-    const polymerVersion = '2.x';
-    const bundlerOptions = {
-      rewriteUrlsInTemplates: !polymerVersion.startsWith('2.')
+    const matcher = (file) => {
+        const fileName = file.history.toString();
+        for (let i = 0; i < EXCLUDE_REGEX.length; i++) {
+            if (fileName.match(EXCLUDE_REGEX[i])) {
+                return false;
+            }
+        }
+        return true;
     };
-    if (typeof options.bundle === 'object') {
-      Object.assign(bundlerOptions, options.bundle);
+
+    // If no name is provided, write directly to the build/ directory.
+    // If a build name is provided, write to that subdirectory.
+    const buildDirectory = path.join(mainBuildDirectoryName, buildName);
+    logger.debug(`"${buildDirectory}": Building with options:`, options);
+    // Fork the two streams to guarentee we are working with clean copies of each
+    // file and not sharing object references with other builds.
+    const sourcesStream = forkStream(polymerProject.sources().pipe(gulpFilter(matcher)));
+    const depsStream = forkStream(polymerProject.dependencies().pipe(gulpFilter(matcher)));
+    const htmlSplitter = new HtmlSplitter();
+    console.log('building');
+    let buildStream: NodeJS.ReadableStream = pipeStreams([
+        mergeStream(sourcesStream, depsStream),
+        htmlSplitter.split(),
+        gulpif(/\/src\/.+\.(html|js)$/, gulpProcess({
+            context: {
+                PRODUCTION: true
+            }
+        })),
+        getOptimizeStreams(optimizeOptions),
+        htmlSplitter.rejoin()
+    ]);
+
+    const compiledToES5 = !!(optimizeOptions.js && optimizeOptions.js.compile);
+    if (compiledToES5) {
+        buildStream = buildStream.pipe(polymerProject.addBabelHelpersInEntrypoint());
+// already bundled within webcomponents-lite.js                      .pipe(polymerProject.addCustomElementsEs5Adapter());
     }
-    buildStream = buildStream.pipe(polymerProject.bundler(bundlerOptions));
-  }
 
-  if (options.insertPrefetchLinks) {
-    buildStream = buildStream.pipe(polymerProject.addPrefetchLinks());
-  }
+    const bundled = !!(options.bundle);
 
-  buildStream.once('data', () => {
-    logger.info(`(${buildName}) Building...`);
-  });
-
-  if (options.basePath) {
-    let basePath = options.basePath === true ? buildName : options.basePath;
-    if (!basePath.startsWith('/')) {
-      basePath = '/' + basePath;
+    if (bundled) {
+        // Polymer 1.x and Polymer 2.x deal with relative urls in dom-module
+        // templates differently.  Polymer CLI will attempt to provide a sensible
+        // default value for the `rewriteUrlsInTemplates` option passed to
+        // `polymer-bundler` based on the version of Polymer found in the project's
+        // folders.  We will default to Polymer 1.x behavior unless 2.x is found.
+        const bundlerOptions = {};
+        if (typeof options.bundle === 'object') {
+            Object.assign(bundlerOptions, options.bundle);
+        }
+        buildStream = buildStream.pipe(polymerProject.bundler(bundlerOptions));
     }
-    if (!basePath.endsWith('/')) {
-      basePath = basePath + '/';
+
+    if (options.insertPrefetchLinks) {
+        buildStream = buildStream.pipe(polymerProject.addPrefetchLinks());
     }
-    buildStream = buildStream.pipe(polymerProject.updateBaseTag(basePath));
-  }
 
-  if (options.addPushManifest) {
-    buildStream = buildStream.pipe(polymerProject.addPushManifest());
-  }
-
-  // Finish the build stream by piping it into the final build directory.
-  buildStream = buildStream.pipe(dest(buildDirectory));
-
-  // If a service worker was requested, parse the service worker config file
-  // while the build is in progress. Loading the config file during the build
-  // saves the user ~300ms vs. loading it afterwards.
-  const swPrecacheConfigPath = path.resolve(
-      polymerProject.config.root,
-      options.swPrecacheConfig || 'sw-precache-config.js');
-  let swConfig: SWConfig|null = null;
-  if (options.addServiceWorker) {
-    swConfig = await loadServiceWorkerConfig(swPrecacheConfigPath);
-  }
-
-  // There is nothing left to do, so wait for the build stream to complete.
-  await waitFor(buildStream);
-
-  if (options.addServiceWorker) {
-    logger.debug(`Generating service worker...`);
-    if (swConfig) {
-      logger.debug(`Service worker config found`, swConfig);
-    } else {
-      logger.debug(
-          `No service worker configuration found at ` +
-          `${swPrecacheConfigPath}, continuing with defaults`);
-    }
-    await addServiceWorker({
-      buildRoot: buildDirectory,
-      project: polymerProject,
-      swPrecacheConfig: swConfig || undefined,
-      bundled: bundled,
+    buildStream.once('data', () => {
+        logger.info(`(${buildName}) Building...`);
     });
-  }
 
-  logger.info(`(${buildName}) Build complete!`);
+    if (options.basePath) {
+        let basePath = options.basePath === true ? buildName : options.basePath;
+        if (!basePath.startsWith('/')) {
+            basePath = '/' + basePath;
+        }
+        if (!basePath.endsWith('/')) {
+            basePath = basePath + '/';
+        }
+        buildStream = buildStream.pipe(polymerProject.updateBaseTag(basePath));
+    }
+
+    if (options.addPushManifest) {
+        buildStream = buildStream.pipe(polymerProject.addPushManifest());
+    }
+
+    // Finish the build stream by piping it into the final build directory.
+    buildStream = buildStream.pipe(dest(buildDirectory));
+
+    // If a service worker was requested, parse the service worker config file
+    // while the build is in progress. Loading the config file during the build
+    // saves the user ~300ms vs. loading it afterwards.
+    const swPrecacheConfigPath = path.resolve(
+        polymerProject.config.root,
+        options.swPrecacheConfig || 'sw-precache-config.js');
+    let swConfig: SWConfig | null = null;
+    if (options.addServiceWorker) {
+        swConfig = await loadServiceWorkerConfig(swPrecacheConfigPath);
+    }
+
+    // There is nothing left to do, so wait for the build stream to complete.
+    await waitFor(buildStream);
+
+    if (options.addServiceWorker) {
+        logger.debug(`Generating service worker...`);
+        if (swConfig) {
+            logger.debug(`Service worker config found`, swConfig);
+        } else {
+            logger.debug(
+                `No service worker configuration found at ` +
+                `${swPrecacheConfigPath}, continuing with defaults`);
+        }
+        await addServiceWorker({
+            buildRoot: buildDirectory,
+            project: polymerProject,
+            swPrecacheConfig: swConfig || undefined,
+            bundled: bundled,
+        });
+    }
+
+    logger.info(`(${buildName}) Build complete!`);
 }

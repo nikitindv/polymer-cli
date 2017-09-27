@@ -191,7 +191,7 @@ export class HTMLOptimizeTransform extends GenericOptimizeTransform {
 export function getOptimizeStreams(options?: OptimizeOptions):
     NodeJS.ReadWriteStream[] {
   options = options || {};
-  const streams = [];
+  const streams:any[] = [];
 
   // compile ES6 JavaScript using babel
   if (options.js && options.js.compile) {
