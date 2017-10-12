@@ -22,9 +22,11 @@ import {Transform} from 'stream';
 
 const babelPresetES2015 = require('babel-preset-es2015');
 const minifyPreset = require('babel-preset-minify');
+// const transformDefine = require('babel-plugin-transform-define');
 const babelPresetES2015NoModules =
     babelPresetES2015.buildPreset({}, {modules: false});
 const externalHelpersPlugin = require('babel-plugin-external-helpers');
+
 
 // TODO(fks) 09-22-2016: Latest npm type declaration resolves to a non-module
 // entity. Upgrade to proper JS import once compatible .d.ts file is released,
@@ -35,12 +37,12 @@ const logger = logging.getLogger('cli.build.optimize-streams');
 
 export type FileCB = (error?: any, file?: File) => void;
 export type CSSOptimizeOptions = {
-  stripWhitespace?: boolean;
+    stripWhitespace?: boolean;
 };
 export interface OptimizeOptions {
-  html?: {minify?: boolean};
-  css?: {minify?: boolean};
-  js?: {minify?: boolean, compile?: boolean};
+    html?: { minify?: boolean };
+    css?: { minify?: boolean };
+    js?: { minify?: boolean, compile?: boolean };
 }
 ;
 
@@ -52,44 +54,43 @@ export interface OptimizeOptions {
  * through unaffected.
  */
 export class GenericOptimizeTransform extends Transform {
-  optimizer: (content: string, options: any) => string;
-  optimizerName: string;
-  optimizerOptions: any;
+    optimizer: (content: string, options: any) => string;
+    optimizerName: string;
+    optimizerOptions: any;
 
-  constructor(
-      optimizerName: string,
-      optimizer: (content: string, optimizerOptions: any) => string,
-      optimizerOptions: any) {
-    super({objectMode: true});
-    this.optimizer = optimizer;
-    this.optimizerName = optimizerName;
-    this.optimizerOptions = optimizerOptions || {};
-  }
-
-  _transform(file: File, _encoding: string, callback: FileCB): void {
-    // TODO(fks) 03-07-2017: This is a quick fix to make sure that
-    // "webcomponentsjs" files aren't compiled down to ES5, because they contain
-    // an important ES6 shim to make custom elements possible. Remove/refactor
-    // when we have a better plan for excluding some files from optimization.
-    if (!file.path || file.path.indexOf('webcomponentsjs/') >= 0 ||
-        file.path.indexOf('webcomponentsjs\\') >= 0) {
-      callback(null, file);
-      return;
+    constructor(optimizerName: string,
+                optimizer: (content: string, optimizerOptions: any) => string,
+                optimizerOptions: any) {
+        super({objectMode: true});
+        this.optimizer = optimizer;
+        this.optimizerName = optimizerName;
+        this.optimizerOptions = optimizerOptions || {};
     }
 
-    if (file.contents) {
-      try {
-        let contents = file.contents.toString();
-        contents = this.optimizer(contents, this.optimizerOptions);
-        file.contents = new Buffer(contents);
-      } catch (error) {
-        logger.warn(
-            `${this.optimizerName}: Unable to optimize ${file.path}`,
-            {err: error.message || error});
-      }
+    _transform(file: File, _encoding: string, callback: FileCB): void {
+        // TODO(fks) 03-07-2017: This is a quick fix to make sure that
+        // "webcomponentsjs" files aren't compiled down to ES5, because they contain
+        // an important ES6 shim to make custom elements possible. Remove/refactor
+        // when we have a better plan for excluding some files from optimization.
+        if (!file.path || file.path.indexOf('webcomponentsjs/') >= 0 ||
+            file.path.indexOf('webcomponentsjs\\') >= 0) {
+            callback(null, file);
+            return;
+        }
+
+        if (file.contents) {
+            try {
+                let contents = file.contents.toString();
+                contents = this.optimizer(contents, this.optimizerOptions);
+                file.contents = new Buffer(contents);
+            } catch (error) {
+                logger.warn(
+                    `${this.optimizerName}: Unable to optimize ${file.path}`,
+                    {err: error.message || error});
+            }
+        }
+        callback(null, file);
     }
-    callback(null, file);
-  }
 }
 
 /**
@@ -100,12 +101,12 @@ export class GenericOptimizeTransform extends Transform {
  * a babel's default "ES6 -> ES5" preset.
  */
 class JSBabelTransform extends GenericOptimizeTransform {
-  constructor(config: BabelTransformOptions) {
-    const transform = (contents: string, options: BabelTransformOptions) => {
-      return babelTransform(contents, options).code!;
-    };
-    super('.js', transform, config);
-  }
+    constructor(config: BabelTransformOptions) {
+        const transform = (contents: string, options: BabelTransformOptions) => {
+            return babelTransform(contents, options).code!;
+        };
+        super('.js', transform, config);
+    }
 }
 
 /**
@@ -113,12 +114,27 @@ class JSBabelTransform extends GenericOptimizeTransform {
  * options.
  */
 export class JSDefaultCompileTransform extends JSBabelTransform {
-  constructor() {
-    super({
-      presets: [babelPresetES2015NoModules],
-      plugins: [externalHelpersPlugin],
-    });
-  }
+    constructor() {
+        super({
+            presets: [babelPresetES2015NoModules],
+            plugins: [externalHelpersPlugin],
+        });
+    }
+}
+
+export class JSDefineTransform extends JSBabelTransform {
+    constructor() {
+        super({
+            plugins: [
+                ['transform-define', {
+                    'process.env.NODE_ENV': 'production',
+                    'process.env.APP_ENV': process.env.APP_ENV,
+                    'process.env.CI_PIPELINE_ID': process.env.CI_PIPELINE_ID,
+                    'process.env.SENTRY_DSN': process.env.SENTRY_DSN,
+                }]
+            ],
+        });
+    }
 }
 
 /**
@@ -129,30 +145,30 @@ export class JSDefaultCompileTransform extends JSBabelTransform {
  * (https://github.com/Polymer/polymer-cli/issues/689)
  */
 export class JSDefaultMinifyTransform extends JSBabelTransform {
-  constructor() {
-    super({
-      presets:
-          [minifyPreset(null, {simplifyComparisons: false})]
-    });
-  }
+    constructor(jsOpts: any) {
+        super({
+            presets: [minifyPreset(null, {simplifyComparisons: false, mangle: jsOpts.mangle || true})],
+
+        });
+    }
 }
 
 /**
  * CSSMinifyTransform minifies CSS that pass through it (via css-slam).
  */
 export class CSSMinifyTransform extends GenericOptimizeTransform {
-  constructor(options: CSSOptimizeOptions) {
-    super('css-slam', cssSlam.css, options);
-  }
-
-  _transform(file: File, encoding: string, callback: FileCB): void {
-    // css-slam will only be run if the `stripWhitespace` option is true.
-    // Because css-slam itself doesn't accept any options, we handle the
-    // option here before transforming.
-    if (this.optimizerOptions.stripWhitespace) {
-      super._transform(file, encoding, callback);
+    constructor(options: CSSOptimizeOptions) {
+        super('css-slam', cssSlam.css, options);
     }
-  }
+
+    _transform(file: File, encoding: string, callback: FileCB): void {
+        // css-slam will only be run if the `stripWhitespace` option is true.
+        // Because css-slam itself doesn't accept any options, we handle the
+        // option here before transforming.
+        if (this.optimizerOptions.stripWhitespace) {
+            super._transform(file, encoding, callback);
+        }
+    }
 }
 
 /**
@@ -160,18 +176,18 @@ export class CSSMinifyTransform extends GenericOptimizeTransform {
  * passes through it (via css-slam).
  */
 export class InlineCSSOptimizeTransform extends GenericOptimizeTransform {
-  constructor(options: CSSOptimizeOptions) {
-    super('css-slam', cssSlam.html, options);
-  }
-
-  _transform(file: File, encoding: string, callback: FileCB): void {
-    // css-slam will only be run if the `stripWhitespace` option is true.
-    // Because css-slam itself doesn't accept any options, we handle the
-    // option here before transforming.
-    if (this.optimizerOptions.stripWhitespace) {
-      super._transform(file, encoding, callback);
+    constructor(options: CSSOptimizeOptions) {
+        super('css-slam', cssSlam.html, options);
     }
-  }
+
+    _transform(file: File, encoding: string, callback: FileCB): void {
+        // css-slam will only be run if the `stripWhitespace` option is true.
+        // Because css-slam itself doesn't accept any options, we handle the
+        // option here before transforming.
+        if (this.optimizerOptions.stripWhitespace) {
+            super._transform(file, encoding, callback);
+        }
+    }
 }
 
 /**
@@ -179,43 +195,46 @@ export class InlineCSSOptimizeTransform extends GenericOptimizeTransform {
  * (via html-minifier).
  */
 export class HTMLOptimizeTransform extends GenericOptimizeTransform {
-  constructor(options: HTMLMinifierOptions) {
-    super('html-minify', htmlMinify, options);
-  }
+    constructor(options: HTMLMinifierOptions) {
+        super('html-minify', htmlMinify, options);
+    }
 }
 
 /**
  * Returns an array of optimization streams to use in your build, based on the
  * OptimizeOptions given.
  */
-export function getOptimizeStreams(options?: OptimizeOptions):
-    NodeJS.ReadWriteStream[] {
-  options = options || {};
-  const streams:any[] = [];
+export function getOptimizeStreams(options?: OptimizeOptions): NodeJS.ReadWriteStream[] {
+    console.log(options);
+    options = options || {};
+    const streams: any[] = [];
 
-  // compile ES6 JavaScript using babel
-  if (options.js && options.js.compile) {
-    streams.push(gulpif(/\.js$/, new JSDefaultCompileTransform()));
-  }
 
-  // minify code (minify should always be the last transform)
-  if (options.html && options.html.minify) {
-    streams.push(gulpif(
-        /\.html$/,
-        new HTMLOptimizeTransform(
-            {collapseWhitespace: true, removeComments: true})));
-  }
-  if (options.css && options.css.minify) {
-    streams.push(
-        gulpif(/\.css$/, new CSSMinifyTransform({stripWhitespace: true})));
-    // TODO(fks): Remove this InlineCSSOptimizeTransform stream once CSS
-    // is properly being isolated by splitHtml() & rejoinHtml().
-    streams.push(gulpif(
-        /\.html$/, new InlineCSSOptimizeTransform({stripWhitespace: true})));
-  }
-  if (options.js && options.js.minify) {
-    streams.push(gulpif(/\.js$/, new JSDefaultMinifyTransform()));
-  }
+    streams.push(gulpif(/\.js$/, new JSDefineTransform()));
 
-  return streams;
+    // compile ES6 JavaScript using babel
+    if (options.js && options.js.compile) {
+        streams.push(gulpif(/\.js$/, new JSDefaultCompileTransform()));
+    }
+
+    // minify code (minify should always be the last transform)
+    if (options.html && options.html.minify) {
+        streams.push(gulpif(
+            /\.html$/,
+            new HTMLOptimizeTransform(
+                {collapseWhitespace: true, removeComments: true})));
+    }
+    if (options.css && options.css.minify) {
+        streams.push(
+            gulpif(/\.css$/, new CSSMinifyTransform({stripWhitespace: true})));
+        // TODO(fks): Remove this InlineCSSOptimizeTransform stream once CSS
+        // is properly being isolated by splitHtml() & rejoinHtml().
+        streams.push(gulpif(
+            /\.html$/, new InlineCSSOptimizeTransform({stripWhitespace: true})));
+    }
+    if (options.js && options.js.minify) {
+        streams.push(gulpif(/\.js$/, new JSDefaultMinifyTransform(options.js)));
+    }
+
+    return streams;
 };

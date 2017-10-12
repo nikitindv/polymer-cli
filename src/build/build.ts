@@ -15,7 +15,6 @@
 import * as path from 'path';
 import * as logging from 'plylog';
 import {dest} from 'vinyl-fs';
-import * as gulpif from 'gulp-if';
 
 
 import mergeStream = require('merge-stream');
@@ -26,7 +25,6 @@ import {ProjectBuildOptions} from 'polymer-project-config';
 import {waitFor, pipeStreams} from './streams';
 import {loadServiceWorkerConfig} from './load-config';
 
-import gulpProcess = require('gulp-preprocess');
 import gulpFilter = require('gulp-filter');
 
 const logger = logging.getLogger('cli.build.build');
@@ -71,15 +69,10 @@ export async function build(options: ProjectBuildOptions,
     const sourcesStream = forkStream(polymerProject.sources().pipe(gulpFilter(matcher)));
     const depsStream = forkStream(polymerProject.dependencies().pipe(gulpFilter(matcher)));
     const htmlSplitter = new HtmlSplitter();
-    console.log('building');
+
     let buildStream: NodeJS.ReadableStream = pipeStreams([
         mergeStream(sourcesStream, depsStream),
         htmlSplitter.split(),
-        gulpif(/\/src\/.+\.(html|js)$/, gulpProcess({
-            context: {
-                PRODUCTION: true
-            }
-        })),
         getOptimizeStreams(optimizeOptions),
         htmlSplitter.rejoin()
     ]);
