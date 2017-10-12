@@ -46,6 +46,16 @@ export interface OptimizeOptions {
 }
 ;
 
+
+const staticDefine: any = ['transform-define', {
+    'process.env.NODE_ENV': 'production',
+    'process.env.APP_ENV': process.env.APP_ENV,
+    'process.env.CI_PIPELINE_ID': process.env.CI_PIPELINE_ID,
+    'process.env.SENTRY_DSN': process.env.SENTRY_DSN,
+}];
+
+console.log(staticDefine);
+
 /**
  * GenericOptimizeTransform is a generic optimization stream. It can be extended
  * to create a new kind of specific file-type optimizer, or it can be used
@@ -117,22 +127,7 @@ export class JSDefaultCompileTransform extends JSBabelTransform {
     constructor() {
         super({
             presets: [babelPresetES2015NoModules],
-            plugins: [externalHelpersPlugin],
-        });
-    }
-}
-
-export class JSDefineTransform extends JSBabelTransform {
-    constructor() {
-        super({
-            plugins: [
-                ['transform-define', {
-                    'process.env.NODE_ENV': 'production',
-                    'process.env.APP_ENV': process.env.APP_ENV,
-                    'process.env.CI_PIPELINE_ID': process.env.CI_PIPELINE_ID,
-                    'process.env.SENTRY_DSN': process.env.SENTRY_DSN,
-                }]
-            ],
+            plugins: [externalHelpersPlugin, staticDefine],
         });
     }
 }
@@ -148,7 +143,7 @@ export class JSDefaultMinifyTransform extends JSBabelTransform {
     constructor(jsOpts: any) {
         super({
             presets: [minifyPreset(null, {simplifyComparisons: false, mangle: jsOpts.mangle || true})],
-
+            plugins: [staticDefine],
         });
     }
 }
@@ -209,8 +204,6 @@ export function getOptimizeStreams(options?: OptimizeOptions): NodeJS.ReadWriteS
     options = options || {};
     const streams: any[] = [];
 
-
-    streams.push(gulpif(/\.js$/, new JSDefineTransform()));
 
     // compile ES6 JavaScript using babel
     if (options.js && options.js.compile) {
