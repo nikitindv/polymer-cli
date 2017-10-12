@@ -27,6 +27,13 @@ const babelPresetES2015NoModules =
     babelPresetES2015.buildPreset({}, {modules: false});
 const externalHelpersPlugin = require('babel-plugin-external-helpers');
 
+const staticDefine = ['babel-plugin-transform-define', {
+    'process.env.NODE_ENV': 'production',
+    'process.env.APP_ENV': process.env.APP_ENV,
+    'process.env.CI_PIPELINE_ID': process.env.CI_PIPELINE_ID,
+    'process.env.SENTRY_PUBLIC_DSN': process.env.SENTRY_PUBLIC_DSN,
+}];
+
 
 // TODO(fks) 09-22-2016: Latest npm type declaration resolves to a non-module
 // entity. Upgrade to proper JS import once compatible .d.ts file is released,
@@ -45,6 +52,8 @@ export interface OptimizeOptions {
     js?: { minify?: boolean, compile?: boolean };
 }
 ;
+
+console.log(staticDefine);
 
 /**
  * GenericOptimizeTransform is a generic optimization stream. It can be extended
@@ -117,22 +126,7 @@ export class JSDefaultCompileTransform extends JSBabelTransform {
     constructor() {
         super({
             presets: [babelPresetES2015NoModules],
-            plugins: [externalHelpersPlugin],
-        });
-    }
-}
-
-export class JSDefineTransform extends JSBabelTransform {
-    constructor() {
-        super({
-            plugins: [
-                ['transform-define', {
-                    'process.env.NODE_ENV': 'production',
-                    'process.env.APP_ENV': process.env.APP_ENV,
-                    'process.env.CI_PIPELINE_ID': process.env.CI_PIPELINE_ID,
-                    'process.env.SENTRY_DSN': process.env.SENTRY_DSN,
-                }]
-            ],
+            plugins: [externalHelpersPlugin, staticDefine],
         });
     }
 }
@@ -148,7 +142,7 @@ export class JSDefaultMinifyTransform extends JSBabelTransform {
     constructor(jsOpts: any) {
         super({
             presets: [minifyPreset(null, {simplifyComparisons: false, mangle: jsOpts.mangle || true})],
-
+            plugins: [staticDefine],
         });
     }
 }
@@ -209,8 +203,6 @@ export function getOptimizeStreams(options?: OptimizeOptions): NodeJS.ReadWriteS
     options = options || {};
     const streams: any[] = [];
 
-
-    streams.push(gulpif(/\.js$/, new JSDefineTransform()));
 
     // compile ES6 JavaScript using babel
     if (options.js && options.js.compile) {
