@@ -140,8 +140,13 @@ export class JSDefaultCompileTransform extends JSBabelTransform {
  */
 export class JSDefaultMinifyTransform extends JSBabelTransform {
     constructor(jsOpts: any) {
+
+        if (jsOpts.mangle === void 0) {
+            jsOpts.mangle = true;
+        }
+
         super({
-            presets: [minifyPreset(null, {simplifyComparisons: false, mangle: jsOpts.mangle || true})],
+            presets: [minifyPreset(null, {simplifyComparisons: false, mangle: jsOpts.mangle})],
             plugins: [staticDefine],
         });
     }
