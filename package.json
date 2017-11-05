@@ -1,6 +1,6 @@
 {
   "name": "polymer-cli",
-  "version": "1.5.5",
+  "version": "1.5.9",
   "description": "A commandline tool for Polymer projects",
   "main": "lib/polymer-cli.js",
   "engines": {
@@ -82,7 +82,6 @@
     "update-notifier": "^1.0.0",
     "vinyl": "^1.1.1",
     "vinyl-fs": "^2.4.3",
-    "web-component-tester": "^6.2.0",
     "yeoman-environment": "^1.5.2",
     "yeoman-generator": "^1.0.1"
   },

@@ -27,12 +27,15 @@ const babelPresetES2015NoModules =
     babelPresetES2015.buildPreset({}, {modules: false});
 const externalHelpersPlugin = require('babel-plugin-external-helpers');
 
-const staticDefine = ['babel-plugin-transform-define', {
+const staticDefine = (environment_keys) => (['babel-plugin-transform-define', environment_keys.reduce((memo, key) => {
+
+    memo[`process.env.${key}`] = process.env[key];
+
+    return memo;
+}, {
     'process.env.NODE_ENV': 'production',
-    'process.env.APP_ENV': process.env.APP_ENV,
-    'process.env.CI_PIPELINE_ID': process.env.CI_PIPELINE_ID,
-    'process.env.SENTRY_PUBLIC_DSN': process.env.SENTRY_PUBLIC_DSN,
-}];
+
+})]);
 
 
 // TODO(fks) 09-22-2016: Latest npm type declaration resolves to a non-module
@@ -123,10 +126,10 @@ class JSBabelTransform extends GenericOptimizeTransform {
  * options.
  */
 export class JSDefaultCompileTransform extends JSBabelTransform {
-    constructor() {
+    constructor(jsOpts) {
         super({
             presets: [babelPresetES2015NoModules],
-            plugins: [externalHelpersPlugin, staticDefine],
+            plugins: [externalHelpersPlugin, staticDefine(jsOpts.environment)],
         });
     }
 }
@@ -147,7 +150,7 @@ export class JSDefaultMinifyTransform extends JSBabelTransform {
 
         super({
             presets: [minifyPreset(null, {simplifyComparisons: false, mangle: jsOpts.mangle})],
-            plugins: [staticDefine],
+            plugins: [staticDefine(jsOpts.environment)],
         });
     }
 }
@@ -211,7 +214,7 @@ export function getOptimizeStreams(options?: OptimizeOptions): NodeJS.ReadWriteS
 
     // compile ES6 JavaScript using babel
     if (options.js && options.js.compile) {
-        streams.push(gulpif(/\.js$/, new JSDefaultCompileTransform()));
+        streams.push(gulpif(/\.js$/, new JSDefaultCompileTransform(options.js)));
     }
 
     // minify code (minify should always be the last transform)
